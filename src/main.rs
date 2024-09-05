@@ -1,3 +1,5 @@
+use std::{thread, time};
+
 #[derive(Debug)]
 struct Chip8 {
     // registers
@@ -52,7 +54,7 @@ impl Chip8 {
         ];
 
         for idx in 0..fonts.len() {
-            chip.MEMORY[idx] = fonts[idx];
+            chip.MEMORY[0x050 + idx] = fonts[idx];
         }
 
         // Read Program in memory
@@ -65,13 +67,32 @@ impl Chip8 {
     }
 
     fn execute(&mut self) {
-        for _ in 0..6 {
+        let cycle_duration = time::Duration::from_millis(16);
+
+        loop {
+
+            print!("\x1B[2J\x1B[H");
+
+            for y in 0..32 {
+                for x in 0..64 {
+                    let pixel = self.PIXEL_BUFFER[x + (y * 64)];
+        
+                    // Print `#` for an "on" pixel, and a space for an "off" pixel
+                    if pixel == 1 {
+                        print!("#");
+                    } else {
+                        print!(".");
+                    }
+                }
+                // New line at the end of each row
+                println!();
+            }
+
+            let start_time = time::Instant::now();
+
             let loc = self.PC as usize;
             let opcode: u16 = (self.MEMORY[loc] as u16) << 8 | self.MEMORY[loc + 1] as u16;
             let first_nibble = (0xF000 & opcode) >> 12;
-
-
-            println!("{:#04x}, {}", opcode, self.I);
             match first_nibble {
                 0x0 => {
                     match opcode {
@@ -270,9 +291,26 @@ impl Chip8 {
                     let coord_x = self.Vx[register_x];
                     let coord_y = self.Vx[register_y];
 
-                    // let
+                    self.Vx[0xF] = 0;
 
-                    
+                    for byte_index in 0..n {
+                        let sprite_byte = self.MEMORY[self.I as usize + byte_index as usize];
+                        for bit_index in 0..8 {
+                            let sprite_pixel = (sprite_byte >> (7 - bit_index)) & 1;
+
+                            let x = (coord_x as usize + bit_index) % 64; // Screen width is 64
+                            let y = (coord_y as usize + byte_index as usize) % 32; // Screen height is 32
+
+                            let display_pixel = &mut self.PIXEL_BUFFER[x + (y * 64)];
+
+                            if sprite_pixel == 1 && *display_pixel == 1 {
+                                self.Vx[0xF] = 1; // Collision detected, set VF to 1
+                            }
+                            *display_pixel ^= sprite_pixel;
+                        }
+                    }
+
+                    self.PC += 2;
                 }
 
                 0xE => {
@@ -299,18 +337,22 @@ impl Chip8 {
                     match last_2_nibbles {
                         0x07 => {
                             // FX07
+                            self.PC += 2;
                         }
 
                         0x0A => {
                             // FX0A
+                            self.PC += 2;
                         }
 
                         0x15 => {
                             // FX15
+                            self.PC += 2;
                         }
 
                         0x18 => {
                             // FX18
+                            self.PC += 2;
                         }
 
                         0x1E => {
@@ -321,18 +363,22 @@ impl Chip8 {
 
                         0x29 => {
                             // FX29
+                            self.PC += 2;
                         }
 
                         0x33 => {
                             // FX33
+                            self.PC += 2;
                         }
 
                         0x55 => {
                             // FX55
+                            self.PC += 2;
                         }
 
                         0x65 => {
                             // FX65
+                            self.PC += 2;
                         }
 
                         _ => {}
@@ -341,22 +387,40 @@ impl Chip8 {
 
                 _ => {}
             }
-            // break;
-            // println!("{:?}", self.PC);
+
+            let elapsed = start_time.elapsed();
+
+            // Sleep for the remainder of the cycle duration to maintain 60Hz
+            if elapsed < cycle_duration {
+                thread::sleep(cycle_duration - elapsed);
+            }
         }
     }
 }
 
 fn main() {
+
+    let program: Vec<u8> = vec![
+        0x00, 0xE0,     
+        0xA2, 0x20, 
+        0x60, 0x08, 
+        0x61, 0x08, 
+        0xD0, 0x18,     
+        0x60, 0x20, 
+        0x61, 0x08, 
+        0xD0, 0x18, 
+        0x60, 0x38, 
+        0x61, 0x08, 
+        0xD0, 0x18, 
+        0x00, 0xEE, 
+    ];
     // let program: Vec<u8> = vec![
     //     0x00, 0xE0, 0xA2, 0xF0, 0x60, 0x00, 0x61, 0x00, 0xD0, 0x15, 0x12, 0x00,
     // ];
 
     // let program: Vec<u8> = vec![0x60,0x20,0x61, 0x12, 0x80, 0x14];
 
-    let program: Vec<u8> = vec![0x00, 0xE0, 0x60, 0x00, 0x61, 0x00, 0x62, 0x41, 0xF2, 0x2A, 0xD0, 0x15];
+    // let program: Vec<u8> = vec![0x00, 0xE0, 0x60, 0x00, 0x61, 0x00, 0x62, 0x41, 0xF2, 0x2A, 0xD0, 0x15];
     let mut chip8 = Chip8::new(program);
     chip8.execute();
-
-    println!("{:?}, I: {:?}", chip8.Vx, chip8.I)
 }
