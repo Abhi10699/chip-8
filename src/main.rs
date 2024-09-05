@@ -1,5 +1,3 @@
-use std::default;
-
 #[derive(Debug)]
 struct Chip8 {
     // registers
@@ -67,20 +65,26 @@ impl Chip8 {
     }
 
     fn execute(&mut self) {
-        loop {
+        for _ in 0..6 {
             let loc = self.PC as usize;
             let opcode: u16 = (self.MEMORY[loc] as u16) << 8 | self.MEMORY[loc + 1] as u16;
             let first_nibble = (0xF000 & opcode) >> 12;
 
+
+            println!("{:#04x}, {}", opcode, self.I);
             match first_nibble {
-                0x0000 => {
+                0x0 => {
                     match opcode {
                         0x00E0 => {
                             // clear screen
+                            self.PIXEL_BUFFER.fill(0);
+                            self.PC += 2;
                         }
 
                         0x00EE => {
-                            // return from subrouting
+                            // return from subroutine i.e
+                            // set PC to the address on the stack???
+                            self.PC = self.STACK.pop().unwrap();
                         }
 
                         _ => {
@@ -90,90 +94,136 @@ impl Chip8 {
                 }
 
                 0x1 => {
-                    // 1NNN
-                    let adddr = opcode & 0x0FFF;
-                    println!("Address: {}", adddr);
+                    // 1NNN -> goto; NNN
+                    let addr = opcode & 0x0FFF;
+                    self.PC = addr;
                 }
 
                 0x2 => {
-                    // 2NNN
-                    let adddr = opcode & 0x0FFF;
+                    // 2NNN -> Calls sub routine at NNN
+                    let addr = opcode & 0x0FFF;
+                    self.STACK.push(self.PC);
+                    self.PC = addr;
                 }
 
                 0x3 => {
                     // 3XNN = if (Vx == NN)
-                    let register = (opcode & 0x0F00) >> 8;
-                    let con = opcode & 0x00FF;
+                    let register = ((opcode & 0x0F00) >> 8) as usize;
+                    let nn = (opcode & 0x00FF) as u8;
+                    if self.Vx[register] == nn {
+                        self.PC += 4
+                    }
                 }
 
                 0x4 => {
                     // 4XNN = if (vx != NN)
-                    let register = (opcode & 0x0F00) >> 8;
-                    let nn = opcode & 0x00FF;
+                    let register = ((opcode & 0x0F00) >> 8) as usize;
+                    let nn = (opcode & 0x00FF) as u8;
+                    if self.Vx[register] != nn {
+                        self.PC += 4
+                    }
                 }
 
                 0x5 => {
                     // 5XY0 = if(vx == vy)
-                    let register_x = (opcode & 0x0F00) >> 8;
-                    let register_y = (opcode & 0x0F00) >> 4;
+                    let register_x = ((opcode & 0x0F00) >> 8) as usize;
+                    let register_y = ((opcode & 0x0F00) >> 4) as usize;
+                    if self.Vx[register_x] == self.Vx[register_y] {
+                        self.PC += 4
+                    }
                 }
 
                 0x6 => {
-                    // 6XNN = Vx == NN
-                    let register = (opcode & 0x0F00) >> 8;
-                    let nn = opcode & 0x00FF;
+                    // 6XNN = Vx = NN
+                    let register = ((opcode & 0x0F00) >> 8) as usize;
+                    let nn = (opcode & 0x00FF) as u8;
+                    self.Vx[register] = nn;
+                    self.PC += 2;
                 }
 
                 0x7 => {
                     // 7XNN = Vx += NN
-                    let register = (opcode & 0x0F00) >> 8;
-                    let nn = opcode & 0x00FF;
+                    let register = ((opcode & 0x0F00) >> 8) as usize;
+                    let nn = (opcode & 0x00FF) as u8;
+                    self.Vx[register] += nn;
+                    self.PC += 2;
                 }
 
                 0x8 => {
                     let last_bit = opcode & 0x000F;
-                    let register_x = (opcode & 0x0F00) >> 8;
-                    let register_y = (opcode & 0x0F00) >> 4;
+                    let register_x = ((opcode & 0x0F00) >> 8) as usize;
+                    let register_y = ((opcode & 0x0F00) >> 4) as usize;
 
                     match last_bit {
                         0x0 => {
                             // 8XY0 = Vx = Vy
+                            self.Vx[register_x] = self.Vx[register_y];
+                            self.PC += 2;
                         }
 
                         0x1 => {
                             // 8XY1 => VX = VX | VY ( bitwise OR )
+                            self.Vx[register_x] = self.Vx[register_x] | self.Vx[register_y];
+                            self.PC += 2;
                         }
 
                         0x2 => {
                             // 8XY1 => VX = VX & VY ( bitwise AND )
+                            self.Vx[register_x] = self.Vx[register_x] & self.Vx[register_y];
+                            self.PC += 2;
                         }
 
                         0x3 => {
                             // 8XY1 => VX = VX ^ VY ( bitwise XOR )
+                            self.Vx[register_x] = self.Vx[register_x] ^ self.Vx[register_y];
+                            self.PC += 2;
                         }
 
                         0x4 => {
                             // 8XY1 => VX = VX + VY ( Addition )
+                            let sum = self.Vx[register_x] + self.Vx[register_y];
+                            if sum > 254 {
+                                self.Vx[15] = 1
+                            }
+                            self.Vx[register_x] = sum;
+                            self.PC += 2;
                         }
 
                         0x5 => {
                             // 8XY1 => VX = VX - VY ( Subtract )
+                            if self.Vx[register_x] >= self.Vx[register_y] {
+                                self.Vx[15] = 1
+                            } else {
+                                self.Vx[15] = 0
+                            }
+
+                            self.Vx[register_x] -= self.Vx[register_y];
+                            self.PC += 2;
                         }
 
                         0x6 => {
                             // 8XY1 => VX = VX - VY ( >> 1 shift by 1 )
+                            self.Vx[15] = self.Vx[register_x] & 0x01;
+                            self.Vx[register_x] >>= 1;
+                            self.PC += 2;
                         }
 
                         0x7 => {
                             // 8XY1 => VX = VY - VX
-                        }
-
-                        0x7 => {
-                            // 8XY1 => VX = VY - VX
+                            if self.Vx[register_y] >= self.Vx[register_x] {
+                                self.Vx[15] = 1
+                            } else {
+                                self.Vx[15] = 0
+                            }
+                            self.Vx[register_x] = self.Vx[register_y] - self.Vx[register_x];
+                            self.PC += 2;
                         }
 
                         0xE => {
                             // 8XYE => VX << 1
+                            self.Vx[15] = self.Vx[register_x] & 0x10;
+                            self.Vx[register_x] <<= 1;
+                            self.PC += 2;
                         }
                         _ => {}
                     }
@@ -182,31 +232,47 @@ impl Chip8 {
                 0x9 => {
                     // 9XY0 == if (Vx != Vy)
 
-                    let register_x = opcode & 0x0F00 >> 8;
-                    let register_y = opcode & 0x00F0 >> 4;
+                    let register_x = (opcode & 0x0F00 >> 8) as usize;
+                    let register_y = (opcode & 0x00F0 >> 4) as usize;
+
+                    if self.Vx[register_x] != self.Vx[register_y] {
+                        self.PC += 4;
+                    }
                 }
 
                 0xA => {
                     // ANNN => I = NNN
-                    let nnn = opcode & 0x0FFF;
+                    let nnn = (opcode & 0x0FFF) as u8;
+                    self.I = nnn;
+                    self.PC += 2;
                 }
 
                 0xB => {
                     // ANNN => PC = V0 + NNN
                     let nnn = opcode & 0x0FFF;
+                    self.PC = (self.Vx[0] as u16) + nnn;
                 }
 
                 0xC => {
                     // CXNN => Vx = rand() & NNN
-                    let register_x = (opcode & 0x0F00) >> 8;
-                    let NN = opcode & 0x00F;
+                    let register_x = ((opcode & 0x0F00) >> 8) as usize;
+                    let nn = (opcode & 0x00F) as u8;
+                    let rand_num = rand::random::<u8>();
+                    self.Vx[register_x] = rand_num & nn;
                 }
 
                 0xD => {
                     // DXYN => draw(Vx, VY, N)
-                    let register_x = (opcode & 0x0F00) >> 8;
-                    let register_y = (opcode & 0x00F0) >> 4;
-                    let n = opcode & 0x000F;
+                    let register_x = ((opcode & 0x0F00) >> 8) as usize;
+                    let register_y = ((opcode & 0x00F0) >> 4) as usize;
+                    let n = (opcode & 0x000F) as u8;
+
+                    let coord_x = self.Vx[register_x];
+                    let coord_y = self.Vx[register_y];
+
+                    // let
+
+                    
                 }
 
                 0xE => {
@@ -227,7 +293,7 @@ impl Chip8 {
                 }
 
                 0xF => {
-                    let register_x = (opcode & 0x0F00) >> 8;
+                    let register_x = ((opcode & 0x0F00) >> 8) as usize;
                     let last_2_nibbles = opcode & 0x00FF;
 
                     match last_2_nibbles {
@@ -249,6 +315,8 @@ impl Chip8 {
 
                         0x1E => {
                             // FX1E
+                            self.I += self.Vx[register_x];
+                            self.PC += 2;
                         }
 
                         0x29 => {
@@ -273,15 +341,22 @@ impl Chip8 {
 
                 _ => {}
             }
-            break;
+            // break;
+            // println!("{:?}", self.PC);
         }
     }
 }
 
 fn main() {
-    let program: Vec<u8> = vec![
-        0x00, 0xE0, 0xA2, 0xF0, 0x60, 0x00, 0x61, 0x00, 0xD0, 0x15, 0x12, 0x00,
-    ];
+    // let program: Vec<u8> = vec![
+    //     0x00, 0xE0, 0xA2, 0xF0, 0x60, 0x00, 0x61, 0x00, 0xD0, 0x15, 0x12, 0x00,
+    // ];
+
+    // let program: Vec<u8> = vec![0x60,0x20,0x61, 0x12, 0x80, 0x14];
+
+    let program: Vec<u8> = vec![0x00, 0xE0, 0x60, 0x00, 0x61, 0x00, 0x62, 0x41, 0xF2, 0x2A, 0xD0, 0x15];
     let mut chip8 = Chip8::new(program);
     chip8.execute();
+
+    println!("{:?}, I: {:?}", chip8.Vx, chip8.I)
 }
